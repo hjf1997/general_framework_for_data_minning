@@ -15,8 +15,8 @@ class TrainOptions(BaseOptions):
         parser = BaseOptions.initialize(self, parser)
         # Loss visualization parameters
         parser.add_argument('--enable_neptune',  action='store_true', help='use neptune platform for experiment tracking')
-        parser.add_argument('--neptune_project', type=str, default='junfengh/general-framework', help='neptune project name')
-        parser.add_argument('--neptune_token', type=str, default='eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiI2MGIzODRhMy0wNmZhLTQxZTAtYTE3Yy1jNzk0ZDY5YWQ5ZTcifQ==', help='neptune api token')
+        parser.add_argument('--neptune_project', type=str, default='', help='neptune project name')
+        parser.add_argument('--neptune_token', type=str, default='', help='neptune api token')
         parser.add_argument('--print_freq', type=int, default=10, help='frequency of showing training results on console')
         # network saving and loading parameters
         parser.add_argument('--save_latest_freq', type=int, default=5000, help='frequency of saving the latest results')

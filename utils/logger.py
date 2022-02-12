@@ -2,7 +2,7 @@ import os
 import time
 import neptune.new as neptune
 from neptune.new.types import File
-
+import json
 
 class Logger():
     """This class includes several functions that can display/save image data, loss values and print/save logging information.
@@ -81,8 +81,20 @@ class Logger():
         print configurations to neptune
         :return:
         """
+        # load model configuration from .json
+        json_path = os.path.join('model_configurations', opt.model + '_config.json')
+        if os.path.exists(json_path):
+            with open(json_path, 'r') as config_file:
+                configs = json.load(config_file)
+                model_config = configs[opt.config]
+            self.neptune_run['configurations/model_configurations'] = model_config
+        else:
+            model_config = None
+
         config = {}
         for k, v in sorted(vars(opt).items()):
+            if model_config and k in model_config.keys():
+                continue
             config[k] = v
         self.neptune_run['configurations'] = config
 

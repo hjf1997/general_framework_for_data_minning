@@ -6,7 +6,7 @@ import torch
 import models
 import data
 import time
-
+import json
 
 class BaseOptions():
     """This class defines options used during both training and test time.
@@ -69,10 +69,11 @@ class BaseOptions():
         # load model configurations from .json
         json_path = os.path.join('model_configurations', opt.model + '_config.json')
         if os.path.exists(json_path):
-            with open(json_path, 'wt') as config_file:
-                configs = config_file[opt.config]
+            with open(json_path, 'r') as config_file:
+                configs = json.load(config_file)
+                configs = configs[opt.config]
                 for k, v in configs.items():
-                    parser.add_argument(k, default=v)
+                    parser.set_defaults(k=v)
         else:
             raise FileNotFoundError('Cannot find configuration file. Load model without configurations!!')
 

@@ -24,7 +24,8 @@ class BaseOptions():
         parser.add_argument('--gpu_ids', type=str, default='-1', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
         # model parameters
-        parser.add_argument('--model', type=str, default='', help='chooses which model to use.')
+        parser.add_argument('--model', type=str, default='', help='chose which model to use.')
+        parser.add_argument('--config', type=str, default='config1', help='choose configurations for model')
         parser.add_argument('--init_type', type=str, default='xavier', help='network initialization [normal | xavier | kaiming | orthogonal]')
         parser.add_argument('--init_gain', type=float, default=0.02, help='scaling factor for normal, xavier and orthogonal.')
         # dataset parameters
@@ -64,6 +65,16 @@ class BaseOptions():
         dataset_name = opt.dataset_mode
         dataset_option_setter = data.get_option_setter(dataset_name)
         parser = dataset_option_setter(parser, self.isTrain)
+
+        # load model configurations from .json
+        json_path = os.path.join('model_configurations', opt.model + '_config.json')
+        if os.path.exists(json_path):
+            with open(json_path, 'wt') as config_file:
+                configs = config_file[opt.config]
+                for k, v in configs.items():
+                    parser.add_argument(k, default=v)
+        else:
+            raise FileNotFoundError('Cannot find configuration file. Load model without configurations!!')
 
         # save and return the parser
         self.parser = parser

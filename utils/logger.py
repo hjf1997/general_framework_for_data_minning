@@ -64,6 +64,8 @@ class Logger():
         print(message)  # print the message
         with open(self.log_name, "a") as log_file:
             log_file.write('%s\n' % message)  # save the message
+        if self.opt.enable_neptune:
+            self.neptune_current_losses(epoch, iters, losses, t_comp, t_data)
 
     def print_current_metrics(self, epoch, iters, metrics, t_val):
         """print current losses on console; also save the losses to the disk
@@ -75,6 +77,8 @@ class Logger():
         print(message)  # print the message
         with open(self.matrices_name, "a") as log_file:
             log_file.write('%s\n' % message)  # save the message
+        if self.opt.enable_neptune:
+            self.neptune_current_metrics(epoch, iters, metrics, t_val)
 
     def neptune_options(self, opt):
         """
@@ -87,7 +91,7 @@ class Logger():
             with open(json_path, 'r') as config_file:
                 configs = json.load(config_file)
                 model_config = configs[opt.config]
-            self.neptune_run['configurations/model_configurations'] = model_config
+            self.neptune_run['model/configurations'] = model_config
         else:
             model_config = None
 
@@ -96,7 +100,7 @@ class Logger():
             if model_config and k in model_config.keys():
                 continue
             config[k] = v
-        self.neptune_run['configurations'] = config
+        self.neptune_run['framework/configurations'] = config
 
     def neptune_current_losses(self, epoch, iters, losses, t_comp, t_data):
         """print current losses to neptune;
@@ -108,9 +112,9 @@ class Logger():
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
         for k, v in losses.items():
-            self.neptune_run['train/'+k].log('%.4f' % v)
-        self.neptune_run['train/computation time'].log('%.4f' % t_comp)
-        self.neptune_run['train/data loading time'].log('%.4f' % t_data)
+            self.neptune_run['train/'+k].log(v)
+        self.neptune_run['train/computation time'].log(t_comp)
+        self.neptune_run['train/data loading time'].log(t_data)
 
     def neptune_current_metrics(self, epoch, iters, metrics, t_val):
         """
@@ -122,8 +126,8 @@ class Logger():
         :return:
         """
         for k, v in metrics.items():
-            self.neptune_run['train/validation'+k].log('%.4f' % v)
-        self.neptune_run['train/validation/computation time'].log('%.4f' % t_val)
+            self.neptune_run['train/validation'+k].log(v)
+        self.neptune_run['train/validation/computation time'].log(t_val)
 
     def neptune_networks(self, model):
         """
@@ -137,7 +141,7 @@ class Logger():
                 num_params = 0
                 for param in net.parameters():
                     num_params += param.numel()
-            self.neptune_run['model/parameters/'+name] = num_params
+            self.neptune_run['model/num_parameters/'+name] = num_params
 
     def neptune_visuals(self, visual):
         """

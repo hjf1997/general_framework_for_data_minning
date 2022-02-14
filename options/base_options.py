@@ -73,7 +73,7 @@ class BaseOptions():
                 configs = json.load(config_file)
                 configs = configs[opt.config]
                 for k, v in configs.items():
-                    parser.set_defaults(k=v)
+                    parser.add_argument('--' + k, default=v)
         else:
             raise FileNotFoundError('Cannot find configuration file. Load model without configurations!!')
 

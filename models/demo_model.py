@@ -26,6 +26,12 @@ class DemoModel(BaseModel):
         if self.isTrain:
             self.visual_names = []
 
+        # specify metrics you want to evaluate the model. The training/test scripts will call functions in order:
+        # <BaseModel.compute_metrics> compute metrics for current batch
+        # <BaseModel.gather_metrics> gather metrics to evaluation cache
+        # <BaseModel.get_current_metrics> compute and return mean of metrics, clear evaluation cache for next evaluation
+        self.metrics_names = []
+
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         self.model_names = []
 

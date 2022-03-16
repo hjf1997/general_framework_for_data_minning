@@ -75,7 +75,7 @@ class Logger():
             message += '%s: %.5f ' % (k, v)
 
         print(message)  # print the message
-        with open(self.matrices_name, "a") as log_file:
+        with open(self.metrics_name, "a") as log_file:
             log_file.write('%s\n' % message)  # save the message
         if self.opt.enable_neptune:
             self.neptune_current_metrics(epoch, iters, metrics, t_val)
@@ -91,7 +91,7 @@ class Logger():
             with open(json_path, 'r') as config_file:
                 configs = json.load(config_file)
                 model_config = configs[opt.config]
-            self.neptune_run['model/configurations'] = model_config
+            self.neptune_run['model_configs'] = model_config
         else:
             model_config = None
 
@@ -100,7 +100,7 @@ class Logger():
             if model_config and k in model_config.keys():
                 continue
             config[k] = v
-        self.neptune_run['framework/configurations'] = config
+        self.neptune_run['framework_configs/'] = config
 
     def neptune_current_losses(self, epoch, iters, losses, t_comp, t_data):
         """print current losses to neptune;
@@ -126,8 +126,8 @@ class Logger():
         :return:
         """
         for k, v in metrics.items():
-            self.neptune_run['train/validation'+k].log(v)
-        self.neptune_run['train/validation/computation time'].log(t_val)
+            self.neptune_run['validation/'+k].log(v)
+        self.neptune_run['validation/computation time'].log(t_val)
 
     def neptune_networks(self, model):
         """

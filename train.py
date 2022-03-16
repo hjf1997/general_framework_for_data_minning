@@ -19,11 +19,11 @@ if __name__ == '__main__':
     model.setup(opt)               # regular setup: load and print networks; create schedulers
     total_iters = 0                # the total number of training iterations
 
-    if opt.val:
+    if opt.enable_val:
         val_opt = Valptions().parse()  # get validation options
-        val_dataset = create_dataset(opt)  # create a validation dataset given opt.dataset_mode and other options
+        val_dataset = create_dataset(val_opt)  # create a validation dataset given opt.dataset_mode and other options
         dataset_size = len(val_dataset)  # get the number of samples in the dataset.
-        print('The number of training samples = %d' % dataset_size)
+        print('The number of validation samples = %d' % dataset_size)
 
     for epoch in range(opt.epoch_count, opt.n_epochs + opt.n_epochs_decay + 1):  # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         model.train()
@@ -54,13 +54,14 @@ if __name__ == '__main__':
 
             iter_data_time = time.time()
 
-        if opt.val and epoch and epoch % opt.eval_epoch_freq == 0:
+        if opt.enable_val and epoch % val_opt.eval_epoch_freq == 0:
             model.eval()
             val_start_time = time.time()
             for i, data in enumerate(val_dataset):  # inner loop within one epoch
                 model.set_input(data)  # unpack data from dataset and apply preprocessing
+                model.test()
                 model.compute_metrics()
-                model.gather_metrcis()  # store the current batch metrics
+                model.gather_metrics()  # store the current batch metrics
             t_val = time.time() - val_start_time
             metrics = model.get_current_metrics()
             visualizer.print_current_metrics(epoch, total_iters, metrics, t_val)

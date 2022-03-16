@@ -1,10 +1,8 @@
 #  implemented by p0werHu
-# time: 5/6/2021
-
-from .base_options import BaseOptions
+from .train_options import TrainOptions
 
 
-class Valptions():
+class Valptions(TrainOptions):
     """This class includes validation options.
     It also includes shared options defined in BaseOptions.
     """
@@ -12,9 +10,9 @@ class Valptions():
     def initialize(self, parser):
         self.isTrain = False
 
-        parser = BaseOptions.initialize(self, parser)
+        parser = TrainOptions.initialize(self, parser)
         # loading parameters
-        parser.add_argument('--phase', type=str, default='val', help='train, val, test, etc')
         parser.set_defaults(serial_batches=True)
+        parser.set_defaults(phase='val')
 
         return parser

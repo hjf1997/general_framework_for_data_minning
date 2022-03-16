@@ -27,7 +27,8 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--total_iters', type=int, default=0, help='the starting iterations')
         parser.add_argument('--phase', type=str, default='train', help='train, val, test, etc')
         # training parameters
-        parser.add_argument('--val', action='store_true', help='evaluate model during training')
+        parser.add_argument('--enable_val', action='store_true', help='evaluate model during training')
+        parser.add_argument('--eval_epoch_freq', type=int, default=1, help='epoch frequency of showing validation results on console')
         parser.add_argument('--n_epochs', type=int, default=1000, help='number of epochs with the initial learning rate')
         parser.add_argument('--n_epochs_decay', type=int, default=500, help='number of epochs to linearly decay learning rate to zero')
         parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate for adam')

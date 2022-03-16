@@ -118,7 +118,8 @@ class BaseOptions():
         else:
             opt.name = opt.model + time.strftime("_%Y%m%dT%H%M%S", time.localtime())
 
-        self.print_options(opt)
+        if opt.phase != 'val':
+            self.print_options(opt)
 
         # set gpu ids
         str_ids = opt.gpu_ids.split(',')

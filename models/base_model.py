@@ -1,11 +1,13 @@
 #  implemented by p0werHu
 
 import os
+
+import numpy as np
 import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 from torch.optim import lr_scheduler
-
+import pickle
 
 class BaseModel(ABC):
     """This class is an abstract base class (ABC) for models.
@@ -17,7 +19,7 @@ class BaseModel(ABC):
         -- <modify_commandline_options>:    (optionally) add model-specific options and set default options.
     """
 
-    def __init__(self, opt):
+    def __init__(self, opt, model_config):
         """Initialize the BaseModel class.
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
@@ -26,10 +28,10 @@ class BaseModel(ABC):
         Then, you need to define four lists:
             -- self.loss_names (str list):          specify the training losses that you want to plot and save.
             -- self.model_names (str list):         define networks used in our training.
-            -- self.visual_names (str list):        specify the images that you want to display and save.
             -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_model.py for an example.
         """
         self.opt = opt
+        self.model_config = model_config
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
@@ -37,10 +39,10 @@ class BaseModel(ABC):
         torch.backends.cudnn.benchmark = True
         self.loss_names = []
         self.model_names = []
-        self.visual_names = []
         self.optimizers = []
-        self.metric_cache = OrderedDict()  # used for store calculated metrics for validation
+        self.metric_names = {}
         self.metric = 0  # used for learning rate policy 'plateau'
+        self.results = {}  # results cache
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -66,7 +68,6 @@ class BaseModel(ABC):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         pass
 
-    @abstractmethod
     def optimize_parameters(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
@@ -82,7 +83,6 @@ class BaseModel(ABC):
             load_suffix = 'iter_%d' % opt.load_iter if opt.load_iter > 0 else opt.epoch
             self.load_networks(load_suffix)
         self.print_networks(opt.verbose)
-        # if finetune, froze all the nn.BatchNorm2d
 
     def get_scheduler(self, optimizer, opt):
         """Return a learning rate scheduler
@@ -106,7 +106,7 @@ class BaseModel(ABC):
         elif opt.lr_policy == 'plateau':
             scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.2, threshold=0.01, patience=5)
         elif opt.lr_policy == 'cosine':
-            scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.n_epochs, eta_min=0)
+            scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.n_epochs, eta_min=1e-6)
         else:
             return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
         return scheduler
@@ -131,7 +131,7 @@ class BaseModel(ABC):
         It also calls <compute_visuals> to produce additional visualization results
         """
         with torch.no_grad():
-            self.forward()
+            self.forward(training=False)
 
     def compute_visuals(self):
         """Calculate additional output images for visdom and HTML visualization"""
@@ -154,19 +154,6 @@ class BaseModel(ABC):
         print('learning rate %.7f -> %.7f' % (old_lr, lr))
         return lr
 
-    def get_current_visuals(self):
-        """Return visualization image data."""
-        visual_ret = OrderedDict()
-        for name in self.visual_names:
-            if isinstance(name, str):
-                attr = getattr(self, name)
-                if isinstance(attr, list):
-                    for i in range(len(attr)):
-                        visual_ret[name+':'+str(i)] = attr[i].cpu().float()
-                else:
-                    visual_ret[name] = attr.cpu().float()
-        return visual_ret
-
     def get_current_losses(self):
         """Return traning losses / errors. train.py will print out these errors on console, and save them to a file"""
         errors_ret = OrderedDict()
@@ -175,24 +162,34 @@ class BaseModel(ABC):
                 errors_ret[name] = float(getattr(self, 'loss_' + name))  # float(...) works for both scalar tensor and float number
         return errors_ret
 
-    def gather_metrics(self):
-        """store current batch metrics to cache"""
-        for name in self.metrics_names:
-            if isinstance(name, str):
-                if name in self.metric_cache.keys():
-                    # self.metric_cache[name]: list
-                    self.metric_cache[name] += [float(getattr(self, 'metric_' + name))]  # float(...) works for both scalar tensor and float number
-                else:
-                    self.metric_cache[name] = [float(getattr(self, 'metric_' + name))]
-
     def get_current_metrics(self):
         """Return validation metrics. train.py will print out these metrics on console, and save them to a file"""
         metrics_ret = OrderedDict()
-        for name, metric in self.metric_cache.items():
-            metrics_ret[name] = sum(metric) / len(metric)
-        # reset metric_cache
-        self.metric_cache.clear()
+        for name in self.metric_names:
+            if isinstance(name, str):
+                attr = float(getattr(self, 'metric_' + name))
+                metrics_ret[name] = attr
         return metrics_ret
+
+    def cache_results(self):
+        """Save the current results for evaluation (e.g. compute metrics)"""
+        pass
+
+    def clear_cache(self):
+        """Clear the results cache"""
+        self.results.clear()
+
+    def _add_to_cache(self, key, data, reverse_norm=False, reverse_varnorm=False, replace=False):
+        # B, N, L, D
+        data = data.cpu().numpy()
+        if reverse_norm:
+            data = data * self.opt.scale + self.opt.mean
+        elif reverse_varnorm:
+            data = data * (self.opt.scale ** 2)
+        if key not in self.results.keys() or replace is True:
+            self.results[key] = data
+        else:
+            self.results[key] = np.concatenate((self.results[key], data), axis=0)
 
     def save_networks(self, epoch):
         """Save all the networks to the disk.
@@ -225,6 +222,11 @@ class BaseModel(ABC):
         else:
             self.__patch_instance_norm_state_dict(state_dict, getattr(module, key), keys, i + 1)
 
+    def save_data(self):
+        """save results"""
+        with open(os.path.join(self.save_dir, 'results.pkl'), 'wb') as f:
+            pickle.dump(self.results, f)
+
     def load_networks(self, epoch):
         """Load all the networks from the disk.
         Parameters:
@@ -244,11 +246,6 @@ class BaseModel(ABC):
                 if hasattr(state_dict, '_metadata'):
                     del state_dict._metadata
 
-                # patch InstanceNorm checkpoints prior to 0.4
-                for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-                    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
-                net.load_state_dict(state_dict)
-
     def print_networks(self, verbose):
         """Print the total number of parameters in the network and (if verbose) network architecture
         Parameters:
@@ -264,6 +261,10 @@ class BaseModel(ABC):
                 if verbose:
                     print(net)
                 print('[Network %s] Total number of parameters : %.3f M' % (name, num_params / 1e6))
+                # save print to file
+                with open(os.path.join(self.save_dir, 'networks.txt'), 'a') as f:
+                    f.write('[Network %s] Total number of parameters : %.3f M' % (name, num_params / 1e6))
+                    f.write('\n')
         print('-----------------------------------------------')
 
     def set_requires_grad(self, nets, requires_grad=False):

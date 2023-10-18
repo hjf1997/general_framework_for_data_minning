@@ -8,6 +8,7 @@ class TestOptions(BaseOptions):
 
     def initialize(self, parser):
         parser = BaseOptions.initialize(self, parser)  # define shared options
+        parser.set_defaults(serial_batches=True)
         parser.add_argument('--print_freq', type=int, default=10, help='frequency of showing training results on console')
         parser.add_argument('--file_time', type=str, default='', help='start training time, this is designd to distinguish the folder to store checkpoints')
 

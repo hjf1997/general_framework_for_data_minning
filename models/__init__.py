@@ -17,33 +17,33 @@ See our template model class 'template_model.py' for more details.
 
 import importlib
 from models.base_model import BaseModel
-from torch.optim import lr_scheduler
 from torch.nn import init
-import torch.nn as nn
 import torch
-
+import glob
 
 def find_model_using_name(model_name):
     """Import the module "models/[model_name]_model.py".
     In the file, the class called DatasetNameModel() will
     be instantiated. It has to be a subclass of BaseModel,
     and it is case-insensitive.
+
     """
-    model_filename = "models." + model_name + "_model"
-    modellib = importlib.import_module(model_filename)
     model = None
-    target_model_name = model_name.replace('_', '') + 'model'
-    for name, cls in modellib.__dict__.items():
-        if name.lower() == target_model_name.lower() \
-           and issubclass(cls, BaseModel):
-            model = cls
-
+    patterns = [f'models/**/{model_name}_model.py']
+    for pattern in patterns:
+        for filename in glob.iglob(pattern):
+            model_filename = filename.replace('/', '.')[:-3]  # remove .py
+            try:
+                modellib = importlib.import_module(model_filename)
+                target_model_name = model_filename.split('.')[-1].replace('_', '')
+                for name, cls in modellib.__dict__.items():
+                    if name.lower() == target_model_name.lower() and issubclass(cls, BaseModel):
+                        model = cls
+            except Exception as e:
+                print(e)
     if model is None:
-        print("In %s.py, there should be a subclass of BaseModel with class name that matches %s in lowercase." % (model_filename, target_model_name))
-        exit(0)
-
+        raise ModuleNotFoundError(f"File {model_name}_model.py not found in models folder.")
     return model
-
 
 def get_option_setter(model_name):
     """Return the static method <modify_commandline_options> of the model class."""
@@ -51,7 +51,7 @@ def get_option_setter(model_name):
     return model_class.modify_commandline_options
 
 
-def create_model(opt):
+def create_model(opt, model_config):
     """Create a model given the option.
     This function warps the class CustomDatasetDataLoader.
     This is the main interface between this package and 'train.py'/'test.py'
@@ -60,7 +60,7 @@ def create_model(opt):
         >>> model = create_model(opt)
     """
     model = find_model_using_name(opt.model)
-    instance = model(opt)
+    instance = model(opt, model_config)
     print("model [%s] was created" % type(instance).__name__)
     return instance
 
@@ -90,31 +90,8 @@ def init_weights(net, init_type='normal', init_gain=0.02):
             if hasattr(m, 'bias') and m.bias is not None:
                 init.constant_(m.bias.data, 0.0)
 
-        if classname.find('TAttn') != -1:
-            if init_type == 'normal':
-                init.normal_(m.w_key.data, 0.0, init_gain)
-                init.normal_(m.w_query.data, 0.0, init_gain)
-                init.normal_(m.trans.data, 0.0, init_gain)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.w_key.data, gain=init_gain)
-                init.xavier_normal_(m.w_query.data, gain=init_gain)
-                init.xavier_normal_(m.trans.data, gain=init_gain)
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.w_key.data, a=0, mode='fan_in')
-                init.kaiming_normal_(m.w_query.data, a=0, mode='fan_in')
-                init.kaiming_normal_(m.trans.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.w_key.data, gain=init_gain)
-                init.orthogonal_(m.w_query.data, gain=init_gain)
-                init.orthogonal_(m.trans.data, gain=init_gain)
-            else:
-                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-            if hasattr(m, 'bias') and m.bias is not None:
-                init.constant_(m.bias.data, 0.0)
-
     print('initialize network with %s' % init_type)
     net.apply(init_func)  # apply the initialization function <init_func>
-
 
 def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     """Initialize a network: 1. register CPU/GPU device (with multi-GPU support); 2. initialize the network weights

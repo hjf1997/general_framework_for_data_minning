@@ -57,3 +57,91 @@ def mkdir(path):
     """
     if not os.path.exists(path):
         os.makedirs(path)
+
+#####################################
+# evaluation metrics
+#####################################
+def _rmse_with_missing(y, label, missing_mask):
+    """
+    Args:
+        y: nd.array [..., D]
+        label: nd.array [..., D]
+        missing_mask: [..., 1] or [...]
+    Returns:
+        rmse: float
+    """
+    if len(missing_mask.shape) != len(label.shape) and missing_mask.shape == y.shape[:-1]:
+        missing_mask = missing_mask[..., np.newaxis]
+    valid_mask = 1 - missing_mask
+    valid_count = np.sum(valid_mask)
+
+    rmse = np.sqrt((((y - label) ** 2) * valid_mask).sum() / (valid_count + 1e-7))
+
+    return rmse
+
+
+def _mae_with_missing(y, label, missing_mask):
+    """
+    Args:
+        y: nd.array [..., D]
+        label: nd.array [..., D]
+        missing_mask: [..., 1] or [...]
+    Returns:
+        mae: float
+    """
+    if len(missing_mask.shape) != len(label.shape) and missing_mask.shape == y.shape[:-1]:
+        missing_mask = missing_mask[..., np.newaxis]
+    valid_mask = 1 - missing_mask
+    valid_count = np.sum(valid_mask)
+
+    mae = np.abs((y-label) * valid_mask).sum() / valid_count
+    return mae
+
+def _mape_with_missing(y, label, missing_mask):
+    """
+    Args:
+        y: nd.array [..., D]
+        label: nd.array [..., D]
+        missing_mask: [..., 1] or [...]
+    Returns:
+        mape: float
+    """
+    if len(missing_mask.shape) != len(label.shape) and missing_mask.shape == y.shape[:-1]:
+        missing_mask = missing_mask[..., np.newaxis]
+    valid_mask = 1 - missing_mask
+    valid_mask = valid_mask * (np.abs(label) > 0.0001)
+    valid_count = np.sum(valid_mask)
+
+    mape = np.abs((y-label) / (label+1e-6) * valid_mask).sum() / valid_count
+    return mape
+
+def _quantile_CRPS_with_missing(y, label, missing_mask):
+    """
+    Args:
+        y: nd.array [time, num_sample, num_m, dy]
+        label: nd.array [time, num_m, dy]
+        missing_index: [time, num_m, 1] or [time, num_m]
+    Returns:
+        CRPS: float
+    """
+    y = y.transpose(1, 0, 2, 3) # [num_sample, time, num_m, dy]
+    def quantile_loss(target, forecast, q: float, eval_points) -> float:
+        return 2 * np.sum(
+            np.abs((forecast - target) * eval_points * ((target <= forecast) * 1.0 - q))
+        )
+
+    def calc_denominator(label, valid_mask):
+        return np.sum(np.abs(label * valid_mask))
+
+    if len(missing_mask.shape) != len(label.shape) and missing_mask.shape[:2] == y.shape[:2]:
+        missing_mask = missing_mask[:, :, np.newaxis]
+
+    valid_mask = 1 - missing_mask
+    quantiles = np.arange(0.05, 1.0, 0.05)
+    denom = calc_denominator(label, valid_mask)
+    CRPS = 0
+    for i in range(len(quantiles)):
+        q_pred = np.quantile(y, quantiles[i], axis=0)
+        q_loss = quantile_loss(label, q_pred, quantiles[i], valid_mask)
+        CRPS += q_loss / denom
+    return CRPS / len(quantiles)

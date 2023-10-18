@@ -6,7 +6,10 @@ import torch
 import models
 import data
 import time
-import json
+import yaml
+import numpy as np
+import random
+import sys
 
 class BaseOptions():
     """This class defines options used during both training and test time.
@@ -32,12 +35,13 @@ class BaseOptions():
         parser.add_argument('--dataset_mode', type=str, default='', help='chooses dataset')
         parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
         parser.add_argument('--num_threads', default=0, type=int, help='# threads for loading data. Note: larger than 0 will throw out an error in my computer')
-        parser.add_argument('--batch_size', type=int, default=16, help='input batch size')
+        parser.add_argument('--batch_size', type=int, default=64, help='input batch size')
         parser.add_argument('--max_dataset_size', type=int, default=float('inf'), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
         # additional parameters
         parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
         parser.add_argument('--load_iter', type=int, default='0', help='which iteration to load? if load_iter > 0, the code will load models by iter_[load_iter]; otherwise, the code will load models by [epoch]')
         parser.add_argument('--verbose', action='store_true', help='if specified, print more debugging information')
+        parser.add_argument('--seed', type=int, default=2023, help='random seed for initialization')
         # add you customized parameters below
         self.initialized = True
         return parser
@@ -66,22 +70,11 @@ class BaseOptions():
         dataset_option_setter = data.get_option_setter(dataset_name)
         parser = dataset_option_setter(parser, self.isTrain)
 
-        # load model configurations from .json
-        json_path = os.path.join('model_configurations', opt.model + '_config.json')
-        if os.path.exists(json_path):
-            with open(json_path, 'r') as config_file:
-                configs = json.load(config_file)
-                configs = configs[opt.config]
-                for k, v in configs.items():
-                    parser.add_argument('--' + k, default=v)
-        else:
-            raise FileNotFoundError('Cannot find configuration file. Load model without configurations!!')
-
-        # save and return the parser
+        # save and return the parser and model config
         self.parser = parser
         return parser.parse_args()
 
-    def print_options(self, opt):
+    def print_options(self, opt, model_config):
         """Print and save options
         It will print both current options and default values(if different).
         It will save options into a text file / [checkpoints_dir] / opt.txt
@@ -94,16 +87,25 @@ class BaseOptions():
             if v != default:
                 comment = '\t[default: %s]' % str(default)
             message += '{:>25}: {:<30}{}\n'.format(str(k), str(v), comment)
+        message += '----------------- End -------------------\n'
+
+        # print model configurations
+        message += '----------------- Model Configurations ---------------\n'
+        for k, v in model_config.items():
+            message += '{:>25}: {:<30}\n'.format(str(k), str(v))
         message += '----------------- End -------------------'
         print(message)
 
         # save to the disk
         expr_dir = os.path.join(opt.checkpoints_dir, opt.name)
-        util.mkdirs(expr_dir)
         file_name = os.path.join(expr_dir, '{}_opt.txt'.format(opt.phase))
         with open(file_name, 'wt') as opt_file:
             opt_file.write(message)
             opt_file.write('\n')
+
+        # save system error outputs
+        logger_file_name = os.path.join(expr_dir, '{}_error.log'.format(opt.phase))
+        sys.stderr = Logger(filename=logger_file_name, stream=sys.stdout)
 
     def parse(self):
         """Parse our options, create checkpoints directory suffix, and set up gpu device."""
@@ -114,13 +116,43 @@ class BaseOptions():
             if opt.file_time == '':
                 raise RuntimeError('Please specify checkpoint time!')
             else:
-                opt.name = opt.model + '_' + opt.file_time
+                opt.name = opt.model + '_' + opt.file_time # dir name
         else:
-            opt.name = opt.model + time.strftime("_%Y%m%dT%H%M%S", time.localtime())
+            current_time = time.strftime("%Y%m%dT%H%M%S", time.localtime())
+            opt.name = opt.model + '_' + current_time
+            opt.file_time = current_time
 
-        if opt.phase != 'val':
-            self.print_options(opt)
+        if opt.phase == 'train':
+            expr_dir = os.path.join(opt.checkpoints_dir, opt.name)
+            if not os.path.exists(expr_dir): # in case of continuing training
+                util.mkdirs(expr_dir)
 
+        # load model configurations from .yaml
+        model_config = None
+        if opt.phase == 'test':
+            yaml_path = os.path.join(opt.checkpoints_dir, opt.name, 'model_config.yaml')
+            if os.path.exists(yaml_path):
+                with open(yaml_path, 'r') as config_file:
+                    model_config = yaml.safe_load(config_file)
+            else:
+                raise RuntimeError('Cannot find model configuration file in the checkpoint dir.')
+        # load model configuration to .yaml and save it to checkpoints_dir
+        if opt.phase == 'train':
+            yaml_path = os.path.join('model_configurations', opt.model + '_config.yaml')
+            if os.path.exists(yaml_path):
+                with open(yaml_path, 'r') as config_file:
+                    model_config = yaml.safe_load(config_file)
+                    model_config = model_config[opt.config]
+                with open(os.path.join(opt.checkpoints_dir, opt.name, 'model_config.yaml'), 'w') as config_file:
+                    yaml.safe_dump(model_config, config_file)
+            else:
+                raise FileNotFoundError('Cannot find configuration file.')
+
+        if opt.phase != 'val': self.print_options(opt, model_config)
+
+        random.seed(opt.seed)
+        np.random.seed(opt.seed)
+        torch.manual_seed(opt.seed)
         # set gpu ids
         str_ids = opt.gpu_ids.split(',')
         opt.gpu_ids = []
@@ -129,7 +161,21 @@ class BaseOptions():
             if id >= 0:
                 opt.gpu_ids.append(id)
         if len(opt.gpu_ids) > 0:
+            torch.cuda.manual_seed_all(opt.seed)
             torch.cuda.set_device(opt.gpu_ids[0])
-
         self.opt = opt
-        return self.opt
+        return self.opt, model_config
+
+
+class Logger(object):
+    def __init__(self, filename='default.log', stream=sys.stdout):
+        self.terminal = stream
+        self.filename = filename
+
+    def write(self, message):
+        self.terminal.write(message)
+        with open(self.filename, 'a') as log:
+            log.write(message)
+
+    def flush(self):
+        pass
